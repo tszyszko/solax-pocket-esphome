@@ -1,0 +1,22 @@
+# secrets: never commit
+secrets.h
+secrets.yaml
+*.secret
+
+# firmware images, flash dumps and backups (may contain Wi-Fi credentials,
+# the dongle serial, or a full stock flash image)
+*.bin
+backups/
+
+# build output
+build/
+.esphome/
+flasher/sdkconfig
+flasher/sdkconfig.old
+flasher/dependencies.lock
+flasher/main/factory_expect.h
+examples/probe2/sdkconfig
+examples/probe2/sdkconfig.old
+examples/probe2/dependencies.lock
+__pycache__/
+*.pyc

@@ -1,0 +1,4 @@
+# push_ota.py (works with paho-mqtt 1.6 and 2.x)
+paho-mqtt>=1.6
+# serial path B: the Makefile uses esptool 5 command names (read-flash / write-flash)
+esptool>=5.0

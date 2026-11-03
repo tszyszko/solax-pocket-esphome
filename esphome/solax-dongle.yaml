@@ -1,0 +1,123 @@
+# ESPHome firmware for a SolaX Pocket WiFi dongle (ESP32-S2, stock fw 3.x).
+# Replaces SolaX's cloud firmware with a local Modbus TCP server (port 502) for
+# the homeassistant-solax-modbus integration (wills106/homeassistant-solax-modbus).
+#
+# The inverter's dongle port does NOT speak Modbus RTU: it speaks SolaX's AA55
+# "Pocket USB" protocol (UART1, GPIO17 TX / GPIO18 RX, 9600 8N1, moving to
+# 115200 after the handshake when the inverter asks for it). The stock dongle
+# tunnels every Modbus TCP request inside an AA55 ctrl-0x14 frame; the
+# solax_aa55 component does the same, but non-blocking, multi-client and faster.
+# Tested on an X1-Fit G4 (type 15). See ../docs/protocol.md.
+#
+# Before building:
+#   1. cp secrets.yaml.example secrets.yaml and fill it in;
+#   2. set dongle_serial below to YOUR stick's 10-character serial
+#      (registration no. on the label, also the stock web UI password).
+#      The placeholder is deliberately invalid so the build fails until you do.
+
+substitutions:
+  name: solax-dongle
+  friendly_name: SolaX Dongle
+  dongle_serial: "CHANGEME"      # e.g. SXXXXXXXXX: exactly 10 characters
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32-s2-saola-1   # generic ESP32-S2, 4 MB
+  framework:
+    type: esp-idf            # ESPHome's default 4 MB layout; the flasher relies on it
+
+logger:
+  level: INFO
+  baud_rate: 0   # UART0 pads are for programming; keep logs off the serial line
+
+api:
+  reboot_timeout: 0min   # never reboot just because HA is away (standalone gateway)
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Optional safety net (not tested on the dongle): a fallback hotspot if the
+  # Wi-Fi above is unreachable, so a typo does not mean opening the case.
+  # ap:
+  #   password: !secret fallback_ap_password
+
+# captive_portal:
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+uart:
+  id: inv_uart
+  tx_pin: GPIO17
+  rx_pin: GPIO18
+  baud_rate: 9600
+  rx_buffer_size: 2048
+
+solax_aa55:
+  id: solax
+  uart_id: inv_uart
+  dongle_serial: ${dongle_serial}
+  modbus_port: 502
+  response_timeout: 1000ms
+  frame_gap: 100ms               # min spacing between UART frames at 115200 (stock: 100 ms)
+  frame_gap_9600: 650ms          # ... and at 9600 (stock: 650 ms)
+  allow_115200: true
+  poll_interval: 5s             # realtime 01 10 query like stock; keeps the inverter at 115200
+  silence_timeout: 30s
+  max_clients: 4
+
+# Alternative (not an addition): expose the raw UART over the native API for
+# aiosolax-uart / serialx (esphome://<ip>:6053/?port_name=inverter&key=...).
+# Only one of serial_proxy and solax_aa55 may own the UART.
+# serial_proxy:
+#   - uart_id: inv_uart
+#     name: inverter
+#     port_type: TTL
+
+binary_sensor:
+  - platform: status
+    name: "Status"
+  - platform: template
+    name: "Inverter link"
+    device_class: connectivity
+    lambda: return id(solax).linked();
+
+text_sensor:
+  - platform: template
+    name: "Inverter serial"
+    update_interval: 60s
+    lambda: return id(solax).inverter_serial();
+
+sensor:
+  - platform: wifi_signal
+    name: "WiFi signal"
+    update_interval: 60s
+  - platform: template
+    name: "Inverter link baud"
+    unit_of_measurement: "baud"
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: return id(solax).link_baud();
+  - platform: template
+    name: "Modbus timeouts"
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: return id(solax).modbus_timeout_count();
+  - platform: template
+    name: "Modbus retries"
+    state_class: total_increasing
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: return id(solax).modbus_retry_count();
